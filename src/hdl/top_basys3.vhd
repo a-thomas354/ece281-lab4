@@ -86,6 +86,8 @@ entity top_basys3 is
         seg :   out std_logic_vector(6 downto 0);
         -- 7-segment display active-low enables (anodes)
         an  :   out std_logic_vector(3 downto 0)
+        
+        
     );
 end top_basys3;
 
@@ -98,7 +100,8 @@ architecture top_basys3_arch of top_basys3 is
               i_reset   : in  STD_LOGIC;
               i_stop    : in  STD_LOGIC;
               i_up_down : in  STD_LOGIC;
-              o_floor   : out STD_LOGIC_VECTOR (3 downto 0)
+              o_floor   : out STD_LOGIC_VECTOR (3 downto 0);
+              o_secondDis : out std_logic_vector(3 downto 0)
     );
     end component elevator_controller_fsm;
 
@@ -117,24 +120,43 @@ architecture top_basys3_arch of top_basys3 is
     );
     end component sevenSegDecoder;
     
+    component TDM4 is 
+        generic ( constant k_WIDTH : natural  := 4); -- bits in input and output
+        port ( i_clk        : in  STD_LOGIC;
+               i_reset        : in  STD_LOGIC; -- asynchronous
+               i_D3         : in  STD_LOGIC_VECTOR (k_WIDTH - 1 downto 0);
+               i_D2         : in  STD_LOGIC_VECTOR (k_WIDTH - 1 downto 0);
+               i_D1         : in  STD_LOGIC_VECTOR (k_WIDTH - 1 downto 0);
+               i_D0         : in  STD_LOGIC_VECTOR (k_WIDTH - 1 downto 0);
+               o_data        : out STD_LOGIC_VECTOR (k_WIDTH - 1 downto 0);
+               o_sel        : out STD_LOGIC_VECTOR (3 downto 0)    -- selected data line (one-cold)
+    );
+    end component TDM4;
+    
     signal w_clk : std_logic;
     signal w_floor :  std_logic_vector(3 downto 0);
-    
+    signal w_firstDis: std_logic_vector(3 downto 0);
+    signal w_secondDis: std_logic_vector(3 downto 0);
+    signal w_sel: std_logic_vector(3 downto 0);
+        
 begin
 	-- PORT MAPS ----------------------------------------
-	sevenSegDecoder_inst : sevenSegDecoder
-        port map (
-        i_D (3 downto 0)  => w_floor (3 downto 0),
-        o_S (6 downto 0) => seg (6 downto 0)
-        );
-        
+    sevenSegDecoder_inst: sevenSegDecoder
+    port map (
+        i_D => w_floor, -- Connect first floor to the first decoder
+        o_S => seg
+    );
+
+
+    
      elevator_inst: elevator_controller_fsm
      port map(
      i_clk => w_clk,
      i_reset => (btnU or btnR),
      i_stop => sw(0),
      i_up_down => sw(1),
-     o_floor (3 downto 0) => w_floor (3 downto 0)
+     o_floor (3 downto 0) => w_firstDis (3 downto 0),
+     o_secondDis (3 downto 0) => w_secondDis (3 downto 0)
 	);
 	clkdiv_inst : clock_divider
         generic map (k_DIV => 25000000)
@@ -143,7 +165,19 @@ begin
         i_reset => (btnU or btnL),
         o_clk => w_clk
         );
-
+    TDM4_inst: TDM4
+        generic map(k_WIDTH => 4)
+        port map(
+        i_clk => w_clk,
+        i_reset => btnU,
+        i_D3 =>w_firstDis,
+        i_D2 =>w_secondDis,
+        i_D1 => w_firstDis,
+        i_D0 =>w_secondDis,
+        o_data =>w_floor,
+        o_sel =>w_sel
+        );
+    
 	-- CONCURRENT STATEMENTS ----------------------------
 
 	-- LED 15 gets the FSM slow clock signal. The rest are grounded.
@@ -154,6 +188,11 @@ begin
 	
 	-- wire up active-low 7SD anodes (an) as required
 	-- Tie any unused anodes to power ('1') to keep them off
-    an  <= (2  => '0', others => '1');
+    an(0) <= '1';
+    an(1) <= '1';
+    an(2) <= '1' when w_sel = "10" else '0';  -- Enable left display for w_floor
+    an(3) <= '1' when w_sel = "01" else '0';  
+
+
 	
 end top_basys3_arch;
